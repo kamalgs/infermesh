@@ -8,6 +8,8 @@ import (
 
 	"github.com/kamalgs/infermesh/internal/config"
 	"github.com/kamalgs/infermesh/internal/gateway"
+	"github.com/kamalgs/infermesh/internal/provider/anthropic"
+	"github.com/kamalgs/infermesh/internal/provider/ollama"
 	"github.com/kamalgs/infermesh/internal/provider/openai"
 	"github.com/nats-io/nats.go"
 )
@@ -43,6 +45,24 @@ func main() {
 		sub, err := adapter.Subscribe(nc)
 		if err != nil {
 			log.Error("failed to start openai adapter", "error", err)
+			os.Exit(1)
+		}
+		defer sub.Drain()
+	}
+	if provCfg, ok := cfg.Providers["anthropic"]; ok {
+		adapter := anthropic.NewAdapter(provCfg, log.With("component", "provider-anthropic"))
+		sub, err := adapter.Subscribe(nc)
+		if err != nil {
+			log.Error("failed to start anthropic adapter", "error", err)
+			os.Exit(1)
+		}
+		defer sub.Drain()
+	}
+	if provCfg, ok := cfg.Providers["ollama"]; ok {
+		adapter := ollama.NewAdapter(provCfg, log.With("component", "provider-ollama"))
+		sub, err := adapter.Subscribe(nc)
+		if err != nil {
+			log.Error("failed to start ollama adapter", "error", err)
 			os.Exit(1)
 		}
 		defer sub.Drain()

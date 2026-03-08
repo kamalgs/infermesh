@@ -1,0 +1,148 @@
+services:
+  # === NATS Infrastructure ===
+
+  nats-hub:
+    image: nats:2-alpine
+    ports:
+      - "4222:4222"
+      - "7422:7422"
+      - "8222:8222"
+    volumes:
+      - ./deploy/nats-hub.conf:/etc/nats/nats.conf
+    command: ["--config", "/etc/nats/nats.conf"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  nats-leaf-client:
+    image: nats:2-alpine
+    ports:
+      - "4225:4225"
+      - "8225:8225"
+    volumes:
+      - ./deploy/nats-leaf-client.conf:/etc/nats/nats.conf
+    command: ["--config", "/etc/nats/nats.conf"]
+    depends_on:
+      nats-hub:
+        condition: service_healthy
+
+  nats-leaf-cloud:
+    image: nats:2-alpine
+    ports:
+      - "4223:4223"
+      - "8223:8223"
+    volumes:
+      - ./deploy/nats-leaf-cloud.conf:/etc/nats/nats.conf
+    command: ["--config", "/etc/nats/nats.conf"]
+    depends_on:
+      nats-hub:
+        condition: service_healthy
+
+  nats-leaf-edge:
+    image: nats:2-alpine
+    ports:
+      - "4224:4224"
+      - "8224:8224"
+    volumes:
+      - ./deploy/nats-leaf-edge.conf:/etc/nats/nats.conf
+    command: ["--config", "/etc/nats/nats.conf"]
+    depends_on:
+      nats-hub:
+        condition: service_healthy
+
+  # === Application Services ===
+
+  mockllm:
+    build: .
+    entrypoint: ["mockllm"]
+    environment:
+      MOCKLLM_ADDR: ":9999"
+    ports:
+      - "9999:9999"
+
+  gateway:
+    build: .
+    entrypoint: ["gateway"]
+    environment:
+      GATEWAY_CONFIG: /etc/infermesh/configs/demo.yaml
+      NATS_URL: "nats://nats-hub:4222"
+      OPENAI_BASE_URL: "http://mockllm:9999/v1"
+      ANTHROPIC_BASE_URL: "http://mockllm:9999"
+      OLLAMA_BASE_URL: "http://mockllm:9999/v1"
+      OPENAI_API_KEY: "mock-key"
+      ANTHROPIC_API_KEY: "mock-key"
+    depends_on:
+      nats-hub:
+        condition: service_healthy
+      mockllm:
+        condition: service_started
+
+  proxy:
+    build: .
+    entrypoint: ["proxy"]
+    environment:
+      NATS_URL: "nats://nats-leaf-client:4225"
+      PROXY_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      nats-leaf-client:
+        condition: service_started
+      gateway:
+        condition: service_started
+
+  provider-openai:
+    build: .
+    entrypoint: ["provider"]
+    environment:
+      PROVIDER_NAME: openai
+      GATEWAY_CONFIG: /etc/infermesh/configs/demo.yaml
+      NATS_URL: "nats://nats-leaf-cloud:4223"
+      OPENAI_BASE_URL: "http://mockllm:9999/v1"
+      ANTHROPIC_BASE_URL: "http://mockllm:9999"
+      OLLAMA_BASE_URL: "http://mockllm:9999/v1"
+      OPENAI_API_KEY: "mock-key"
+      ANTHROPIC_API_KEY: "mock-key"
+    depends_on:
+      nats-leaf-cloud:
+        condition: service_started
+      mockllm:
+        condition: service_started
+
+  provider-anthropic:
+    build: .
+    entrypoint: ["provider"]
+    environment:
+      PROVIDER_NAME: anthropic
+      GATEWAY_CONFIG: /etc/infermesh/configs/demo.yaml
+      NATS_URL: "nats://nats-leaf-cloud:4223"
+      OPENAI_BASE_URL: "http://mockllm:9999/v1"
+      ANTHROPIC_BASE_URL: "http://mockllm:9999"
+      OLLAMA_BASE_URL: "http://mockllm:9999/v1"
+      OPENAI_API_KEY: "mock-key"
+      ANTHROPIC_API_KEY: "mock-key"
+    depends_on:
+      nats-leaf-cloud:
+        condition: service_started
+      mockllm:
+        condition: service_started
+
+  provider-ollama:
+    build: .
+    entrypoint: ["provider"]
+    environment:
+      PROVIDER_NAME: ollama
+      GATEWAY_CONFIG: /etc/infermesh/configs/demo.yaml
+      NATS_URL: "nats://nats-leaf-edge:4224"
+      OPENAI_BASE_URL: "http://mockllm:9999/v1"
+      ANTHROPIC_BASE_URL: "http://mockllm:9999"
+      OLLAMA_BASE_URL: "http://mockllm:9999/v1"
+      OPENAI_API_KEY: "mock-key"
+      ANTHROPIC_API_KEY: "mock-key"
+    depends_on:
+      nats-leaf-edge:
+        condition: service_started
+      mockllm:
+        condition: service_started

@@ -1,9 +1,11 @@
-.PHONY: test test-unit test-integration test-sdk test-all bench build clean
+.PHONY: test test-unit test-integration test-sdk test-all bench build clean demo-up demo-down demo-test
 
 # Build
 build:
 	go build -o gateway ./cmd/gateway
 	go build -o proxy ./cmd/proxy
+	go build -o provider ./cmd/provider
+	go build -o mockllm ./cmd/mockllm
 
 # Unit tests (fast, no external deps)
 test-unit:
@@ -31,5 +33,15 @@ bench:
 test-v:
 	go test ./api/... ./internal/... ./test/integration/... -v -count=1
 
+# Demo (multi-provider with mock LLM)
+demo-up:
+	docker compose -f docker-compose.demo.yaml up --build -d
+
+demo-down:
+	docker compose -f docker-compose.demo.yaml down
+
+demo-test:
+	bash examples/demo.sh
+
 clean:
-	rm -f gateway proxy
+	rm -f gateway proxy provider mockllm
