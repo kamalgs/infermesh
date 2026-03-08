@@ -561,6 +561,112 @@ replicas. Falls back to in-memory for single-instance deployments.
 Rate limit errors are returned as standard error responses on the NATS reply
 subject.
 
+### 4.12 Global Deployment via Synadia Cloud (NGS)
+
+[Synadia Cloud](https://www.synadia.com/cloud) (formerly NGS) is a globally
+distributed, managed NATS supercluster. Instead of running your own NATS
+servers, all components — clients, gateway, model servers — connect to
+Synadia Cloud from anywhere in the world.
+
+This turns the LLM gateway into a **globally distributed service with zero
+infrastructure management**:
+
+```
+  São Paulo           US-East             Frankfurt            Tokyo
+ ┌──────────┐                                              ┌──────────┐
+ │  Client   │─WS─┐                                  ┌─WS─│  Client   │
+ │ (browser) │    │                                  │    │ (browser) │
+ └──────────┘    │    ┌───────────────────────┐    │    └──────────┘
+                  ├───►│                       │◄───┤
+ ┌──────────┐    │    │    Synadia Cloud      │    │    ┌──────────┐
+ │ GPU Node │─TCP─┤    │    (global NATS       │    ├─TCP─│ GPU Node │
+ │ (Ollama) │    │    │     supercluster)     │    │    │ (vLLM)   │
+ └──────────┘    │    │                       │    │    └──────────┘
+                  │    └───────┬───────┬───────┘    │
+ ┌──────────┐    │            │       │            │    ┌──────────┐
+ │ Gateway  │─TCP─┘            │       │            └─TCP─│ HTTP     │
+ │ Service  │              (global    (global           │ Adapter  │─► OpenAI
+ └──────────┘               routing)  (routing)         └──────────┘
+```
+
+**Nothing to run.** No NATS servers, no load balancers, no service mesh.
+Synadia handles global routing, TLS, and availability. You just connect.
+
+#### Why Synadia Cloud for an LLM Gateway
+
+| Benefit | Detail |
+|---|---|
+| **Zero NATS ops** | No servers to provision, patch, or scale — Synadia manages the supercluster |
+| **Global low-latency** | Clients connect to the nearest Synadia POP; requests route intelligently to the best available model server |
+| **Multi-region inference** | GPU nodes in different regions subscribe to the same subjects — NATS routes to the nearest/fastest |
+| **Built-in multi-tenancy** | NATS accounts provide hard isolation between tenants; each tenant gets its own account with separate subjects, limits, and JWTs |
+| **Edge + cloud hybrid** | Leaf nodes extend Synadia Cloud to on-prem GPU clusters or edge locations |
+| **Security** | JWT-based auth, NKeys, and account-level permissions — no secrets in the gateway config |
+
+#### Multi-Tenancy with NATS Accounts
+
+Synadia Cloud's account model maps naturally to LLM gateway tenancy:
+
+```
+Operator (you)
+├── Account: "team-alpha"     (JWT-authenticated)
+│   ├── User: "alpha-app-1"  → can publish to llm.chat.*, llm.provider.openai
+│   ├── User: "alpha-app-2"  → can publish to llm.chat.* only
+│   └── Rate limit: 1000 msg/min
+│
+├── Account: "team-beta"      (JWT-authenticated)
+│   ├── User: "beta-app-1"   → can publish to llm.chat.*
+│   └── Rate limit: 500 msg/min
+│
+└── Account: "infra"          (internal)
+    ├── User: "gateway-svc"   → subscribes to llm.chat.*, publishes to llm.provider.*
+    ├── User: "openai-adapter"→ subscribes to llm.provider.openai
+    └── User: "gpu-node-1"   → subscribes to llm.provider.local-llama
+```
+
+Each account is fully isolated — `team-alpha` cannot see `team-beta`'s
+messages. Cross-account communication (e.g., both teams routing to the
+shared gateway account) is done via explicit exports/imports.
+
+This replaces the gateway-level API key auth with NATS-native account
+auth — stronger isolation, centrally managed via JWTs, no custom code.
+
+#### Leaf Nodes for Hybrid Deployment
+
+For organizations that want some infrastructure on-prem (e.g., GPU nodes
+behind a firewall), NATS leaf nodes bridge private infrastructure to
+Synadia Cloud:
+
+```
+┌─────────────────────────────┐        ┌──────────────────┐
+│  On-Prem Data Center        │        │  Synadia Cloud   │
+│                             │        │                  │
+│  ┌────────┐  ┌────────┐    │  leaf   │                  │
+│  │GPU Node│  │GPU Node│    ├────────►│  (global NATS)   │◄── Clients
+│  └───┬────┘  └───┬────┘    │  node   │                  │
+│      │           │         │        │                  │
+│  ┌───┴───────────┴───┐     │        └──────────────────┘
+│  │  Local NATS       │     │
+│  │  (leaf node)      │     │
+│  └───────────────────┘     │
+└─────────────────────────────┘
+```
+
+GPU nodes never need public IPs. The leaf node makes an outbound
+connection to Synadia Cloud, and NATS routes requests to the on-prem
+GPUs transparently.
+
+#### Deployment Options Summary
+
+| Option | Run NATS? | Best for |
+|---|---|---|
+| **Self-hosted NATS** | Yes (single server or cluster) | Development, simple deployments, full control |
+| **Synadia Cloud** | No | Production, global distribution, multi-tenancy |
+| **Hybrid (leaf nodes)** | Yes (leaf nodes only) | On-prem GPUs + global client access |
+
+The gateway code is identical across all three — only the NATS connection
+URL changes.
+
 ---
 
 ## 5. Technology Choices
@@ -649,6 +755,16 @@ subject.
 - [ ] NATS leaf node configuration for edge inference (model server in remote location, connected via leaf node)
 - [ ] Benchmark: NATS-native inference vs HTTP-based Ollama/vLLM (measure eliminated HTTP overhead)
 - [ ] Mixed deployment example: docker-compose with local Ollama (NATS-native) + cloud OpenAI (HTTP adapter)
+
+### M8 — Global Deployment (Synadia Cloud / NGS)
+- [ ] Synadia Cloud deployment guide — connect gateway, adapters, and model servers to NGS
+- [ ] NATS account-based multi-tenancy — replace gateway API key auth with NATS JWT accounts
+- [ ] Cross-account exports/imports — shared gateway account serving multiple tenant accounts
+- [ ] Leaf node setup for hybrid deployment — on-prem GPU nodes connecting to Synadia Cloud
+- [ ] Multi-region routing — clients and model servers in different regions, NATS routes optimally
+- [ ] Per-account rate limiting via NATS account limits (replaces/complements gateway-level rate limiting)
+- [ ] Example: global LLM service — GPU nodes in 3 regions, clients worldwide, zero self-managed infrastructure
+- [ ] Benchmark: latency across regions via Synadia Cloud vs. direct cloud API calls
 
 ---
 
