@@ -1,5 +1,6 @@
-# Binaries (output binary at repo root)
+# Binaries
 /gateway
+/proxy
 *.exe
 *.dll
 *.so
@@ -27,6 +28,10 @@ Thumbs.db
 # Config with secrets
 configs/gateway.yaml
 !configs/gateway.yaml.example
+
+# JS SDK
+sdk/js/node_modules/
+sdk/js/dist/
 
 # Environment
 .env
