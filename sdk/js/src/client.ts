@@ -1,7 +1,7 @@
 import { connect, type NatsConnection, type ConnectionOptions } from "nats";
 import { Chat } from "./chat.js";
 
-export interface NATSLLMClientOptions {
+export interface InferMeshClientOptions {
   /** NATS server URL, e.g. "nats://localhost:4222" */
   natsUrl?: string;
   /** API key for gateway-level auth (M0: unused, placeholder) */
@@ -10,7 +10,7 @@ export interface NATSLLMClientOptions {
   nc?: NatsConnection;
 }
 
-export class NATSLLMClient {
+export class InferMeshClient {
   private nc: NatsConnection;
   private ownsConnection: boolean;
   chat: Chat;
@@ -25,9 +25,9 @@ export class NATSLLMClient {
    * Connect to NATS and create a new client.
    * Use this as the primary constructor since NATS connection is async.
    */
-  static async connect(opts: NATSLLMClientOptions = {}): Promise<NATSLLMClient> {
+  static async connect(opts: InferMeshClientOptions = {}): Promise<InferMeshClient> {
     if (opts.nc) {
-      return new NATSLLMClient(opts.nc, false);
+      return new InferMeshClient(opts.nc, false);
     }
 
     const natsOpts: ConnectionOptions = {
@@ -35,7 +35,7 @@ export class NATSLLMClient {
     };
 
     const nc = await connect(natsOpts);
-    return new NATSLLMClient(nc, true);
+    return new InferMeshClient(nc, true);
   }
 
   async close(): Promise<void> {

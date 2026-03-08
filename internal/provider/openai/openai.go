@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kamalgs/nats-llm-gateway/api"
-	"github.com/kamalgs/nats-llm-gateway/internal/config"
-	"github.com/kamalgs/nats-llm-gateway/internal/provider"
+	"github.com/kamalgs/infermesh/api"
+	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	"github.com/nats-io/nats.go"
 )
 

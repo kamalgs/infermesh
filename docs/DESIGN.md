@@ -1,8 +1,8 @@
-# NATS LLM Gateway — Requirements & Design
+# InferMesh — Requirements & Design
 
 ## 1. Overview
 
-NATS LLM Gateway uses **NATS global clustering** to dynamically distribute
+InferMesh uses **NATS global clustering** to dynamically distribute
 LLM inference across geographies. GPU nodes, cloud API adapters, and clients
 connect to a NATS cluster (self-hosted, multi-region, or managed) from
 anywhere — the routing layer shifts load between regions based on capacity,
@@ -158,12 +158,12 @@ The OpenAI-compatible API makes adoption frictionless:
 ### 4.1 Repository Structure
 
 ```
-nats-llm-gateway/
+infermesh/
 ├── sdk/
-│   └── js/                        # JavaScript/TypeScript SDK (nats-llm-client)
+│   └── js/                        # JavaScript/TypeScript SDK (infermesh)
 │       ├── src/
 │       │   ├── index.ts           # Public API exports
-│       │   ├── client.ts          # NATSLLMClient — main entry point
+│       │   ├── client.ts          # InferMeshClient — main entry point
 │       │   ├── chat.ts            # chat.completions namespace
 │       │   ├── models.ts          # models namespace
 │       │   ├── streaming.ts       # Async iterable stream wrapper
@@ -256,10 +256,10 @@ gateway binary itself (single binary mode).
 The SDK mirrors the OpenAI JS SDK (`openai` npm package) interface:
 
 ```typescript
-import { NATSLLMClient } from 'nats-llm-client';
+import { InferMeshClient } from 'infermesh';
 
 // Connect to NATS — Node.js (TCP) or browser (WebSocket)
-const client = new NATSLLMClient({
+const client = new InferMeshClient({
   natsUrl: 'wss://nats.example.com:443',  // or 'nats://localhost:4222'
   apiKey: 'sk-my-key',
 });
@@ -295,9 +295,9 @@ await client.close();
 import OpenAI from 'openai';
 const client = new OpenAI({ apiKey: 'sk-...' });
 
-// After (NATS LLM Gateway SDK)
-import { NATSLLMClient } from 'nats-llm-client';
-const client = new NATSLLMClient({ natsUrl: 'nats://localhost:4222', apiKey: 'sk-...' });
+// After (InferMesh SDK)
+import { InferMeshClient } from 'infermesh';
+const client = new InferMeshClient({ natsUrl: 'nats://localhost:4222', apiKey: 'sk-...' });
 
 // Everything below stays IDENTICAL:
 const resp = await client.chat.completions.create({
@@ -732,7 +732,7 @@ URL changes.
 | NATS client | `nats` / `nats.ws` | Official NATS.js client — `nats` for Node/Deno/Bun, `nats.ws` for browsers |
 | Build | `tsup` | Fast, zero-config bundler for libraries |
 | Test | `vitest` | Fast, TypeScript-native |
-| Package | `nats-llm-client` | Published to npm |
+| Package | `infermesh` | Published to npm |
 
 ---
 

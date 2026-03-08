@@ -1,5 +1,5 @@
 {
-  "name": "nats-llm-client",
+  "name": "infermesh",
   "version": "0.0.1",
   "description": "OpenAI-compatible LLM client over NATS",
   "main": "dist/index.js",

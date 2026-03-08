@@ -1,4 +1,4 @@
-# nats-llm-gateway
+# InferMesh
 
 **Dynamic geographic load shifting for LLM inference** — powered by NATS global clustering.
 
@@ -63,9 +63,9 @@ curl http://localhost:8080/v1/chat/completions \
 ### JS SDK (direct NATS — lower latency)
 
 ```typescript
-import { NATSLLMClient } from 'nats-llm-client';
+import { InferMeshClient } from 'infermesh';
 
-const client = await NATSLLMClient.connect({ servers: 'localhost:4222' });
+const client = await InferMeshClient.connect({ servers: 'localhost:4222' });
 
 const resp = await client.chat.completions.create({
   model: 'gpt-4o',
@@ -80,8 +80,8 @@ await client.close();
 ```bash
 # Prerequisites: Go 1.22+, Node.js 18+, Docker (for NATS)
 
-git clone https://github.com/kamalgs/nats-llm-gateway.git
-cd nats-llm-gateway
+git clone https://github.com/kamalgs/infermesh.git
+cd infermesh
 
 # Start NATS
 docker-compose up -d

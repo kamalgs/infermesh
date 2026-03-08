@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/kamalgs/nats-llm-gateway/api"
+	"github.com/kamalgs/infermesh/api"
 )
 
 // Provider sends a chat completion request to an upstream LLM API.

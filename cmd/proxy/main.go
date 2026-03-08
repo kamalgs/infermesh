@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kamalgs/nats-llm-gateway/internal/proxy"
+	"github.com/kamalgs/infermesh/internal/proxy"
 	"github.com/nats-io/nats.go"
 )
 

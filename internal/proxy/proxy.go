@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kamalgs/nats-llm-gateway/api"
+	"github.com/kamalgs/infermesh/api"
 	"github.com/nats-io/nats.go"
 )
 

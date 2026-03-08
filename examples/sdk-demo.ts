@@ -2,10 +2,10 @@
 // Prerequisites: NATS running, gateway running
 // Run: cd sdk/js && npx tsx ../../examples/sdk-demo.ts
 
-import { NATSLLMClient } from "../sdk/js/src/index.js";
+import { InferMeshClient } from "../sdk/js/src/index.js";
 
 async function main() {
-  const client = await NATSLLMClient.connect({
+  const client = await InferMeshClient.connect({
     natsUrl: process.env.NATS_URL || "nats://localhost:4222",
   });
 

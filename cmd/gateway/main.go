@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kamalgs/nats-llm-gateway/internal/config"
-	"github.com/kamalgs/nats-llm-gateway/internal/gateway"
-	"github.com/kamalgs/nats-llm-gateway/internal/provider/openai"
+	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/gateway"
+	"github.com/kamalgs/infermesh/internal/provider/openai"
 	"github.com/nats-io/nats.go"
 )
 

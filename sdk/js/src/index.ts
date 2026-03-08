@@ -1,5 +1,5 @@
-export { NATSLLMClient } from "./client.js";
-export type { NATSLLMClientOptions } from "./client.js";
+export { InferMeshClient } from "./client.js";
+export type { InferMeshClientOptions } from "./client.js";
 export type {
   ChatCompletionRequest,
   ChatCompletionResponse,

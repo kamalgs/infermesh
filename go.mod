@@ -1,4 +1,4 @@
-module github.com/kamalgs/nats-llm-gateway
+module github.com/kamalgs/infermesh
 
 go 1.25.0
 

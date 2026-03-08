@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { connect, type NatsConnection, StringCodec } from "nats";
-import { NATSLLMClient } from "../src/index.js";
+import { InferMeshClient } from "../src/index.js";
 import type { ChatCompletionResponse, ErrorResponse } from "../src/types.js";
 
 const sc = StringCodec();
@@ -9,7 +9,7 @@ const sc = StringCodec();
 // Skip if not available.
 const NATS_URL = process.env.NATS_URL || "nats://localhost:4222";
 
-describe("NATSLLMClient", () => {
+describe("InferMeshClient", () => {
   let mockNc: NatsConnection;
 
   beforeAll(async () => {
@@ -53,7 +53,7 @@ describe("NATSLLMClient", () => {
   it("connects and creates chat completion", async () => {
     if (!mockNc) return;
 
-    const client = await NATSLLMClient.connect({ natsUrl: NATS_URL });
+    const client = await InferMeshClient.connect({ natsUrl: NATS_URL });
 
     const resp = await client.chat.completions.create({
       model: "gpt-4o",
@@ -74,7 +74,7 @@ describe("NATSLLMClient", () => {
     if (!mockNc) return;
 
     const nc = await connect({ servers: NATS_URL });
-    const client = await NATSLLMClient.connect({ nc });
+    const client = await InferMeshClient.connect({ nc });
 
     const resp = await client.chat.completions.create({
       model: "test-model",
