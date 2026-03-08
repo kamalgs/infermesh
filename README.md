@@ -1,25 +1,25 @@
 # nats-llm-gateway
 
-A **NATS-native** LLM gateway. Clients connect directly to NATS (TCP or WebSocket) — no HTTP layer in the gateway. A Go SDK provides an OpenAI-compatible interface over NATS.
+A **NATS-native** LLM gateway. Clients connect directly to NATS (TCP or WebSocket) — no HTTP layer in the gateway. A JavaScript/TypeScript SDK provides an OpenAI-compatible interface over NATS.
 
 ```
-Client (Go SDK) ──► NATS ──► Gateway Service ──► Provider Adapters ──► OpenAI / Anthropic / Ollama / ...
+Client (JS SDK) ──► NATS (TCP/WS) ──► Gateway Service ──► Provider Adapters ──► OpenAI / Anthropic / Ollama / ...
 ```
 
 ## Features
 
-- **NATS-native** — no HTTP in the hot path; clients speak NATS protocol directly (TCP or WebSocket)
-- **OpenAI-compatible SDK** — drop-in Go SDK with familiar `ChatCompletion` / `ChatCompletionStream` interface
-- **Multi-provider routing** — route to OpenAI, Anthropic, Ollama, and more via pluggable adapters
-- **Streaming** — token-by-token streaming over NATS subjects, chunks flow direct from adapter to client
+- **NATS-native** — no HTTP in the hot path; clients speak NATS protocol directly
+- **OpenAI-compatible JS SDK** — drop-in replacement for the `openai` npm package
+- **Multi-runtime** — works in Node.js, Deno, Bun (TCP) and browsers (WebSocket)
+- **Multi-provider routing** — route to OpenAI, Anthropic, Ollama, and more
+- **Streaming** — `async iterable` streaming over NATS, chunks flow direct from adapter to client
 - **Rate limiting** — per-key, per-model, and global limits backed by NATS KV
-- **Authentication** — two layers: NATS native auth (NKeys/JWTs) + gateway API key validation
-- **Observable** — structured logging, Prometheus metrics
+- **Authentication** — NATS native auth (NKeys/JWTs) + gateway API key validation
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.22+, NATS server on localhost:4222
+# Prerequisites: Node.js 18+, NATS server on localhost:4222
 
 git clone https://github.com/kamalgs/nats-llm-gateway.git
 cd nats-llm-gateway
@@ -32,35 +32,35 @@ go run ./cmd/gateway --config configs/gateway.yaml
 
 Use the SDK in your application:
 
-```go
-import "github.com/kamalgs/nats-llm-gateway/pkg/client"
+```typescript
+import { NATSLLMClient } from 'nats-llm-client';
 
-llm, _ := client.New(
-    client.WithNATSURL("nats://localhost:4222"),
-    client.WithAPIKey("sk-my-key"),
-)
-defer llm.Close()
+const client = new NATSLLMClient({
+  natsUrl: 'nats://localhost:4222',
+  apiKey: 'sk-my-key',
+});
 
-// Non-streaming
-resp, _ := llm.ChatCompletion(ctx, &client.ChatCompletionRequest{
-    Model: "gpt-4o",
-    Messages: []client.Message{
-        {Role: "user", Content: "Hello!"},
-    },
-})
-fmt.Println(resp.Choices[0].Message.Content)
+// Non-streaming — same interface as OpenAI SDK
+const response = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello!' }],
+});
+console.log(response.choices[0].message.content);
 
-// Streaming
-stream, _ := llm.ChatCompletionStream(ctx, &client.ChatCompletionRequest{
-    Model: "claude-sonnet",
-    Messages: []client.Message{
-        {Role: "user", Content: "Write a poem"},
-    },
-})
-for stream.Next() {
-    fmt.Print(stream.Current().Choices[0].Delta.Content)
+// Streaming — async iterable
+const stream = await client.chat.completions.create({
+  model: 'claude-sonnet',
+  messages: [{ role: 'user', content: 'Write a poem' }],
+  stream: true,
+});
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || '');
 }
+
+await client.close();
 ```
+
+**Migrating from OpenAI SDK?** Just change the import and constructor — everything else stays the same.
 
 ## Documentation
 

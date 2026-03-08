@@ -6,9 +6,13 @@ NATS LLM Gateway is a **NATS-native** LLM gateway. There is no HTTP layer in
 the gateway itself — clients connect directly to NATS (TCP or WebSocket) and
 interact with LLM providers through NATS request/reply and streaming subjects.
 
-A **Go SDK** provides an OpenAI-compatible programmatic interface over NATS,
-making it trivial to migrate existing applications. A **client-side HTTP proxy**
-can be added later for legacy HTTP clients.
+A **JavaScript/TypeScript SDK** (`nats-llm-client`) provides an
+OpenAI-compatible programmatic interface over NATS. The SDK is designed as a
+**drop-in replacement for the OpenAI JS SDK** — same method signatures, same
+types, different transport. Works in Node.js, Deno, Bun, and browsers (via
+NATS WebSocket).
+
+A client-side HTTP proxy can be added later for legacy HTTP clients.
 
 ```
                           NATS Server
@@ -18,8 +22,8 @@ can be added later for legacy HTTP clients.
           │                   │                   │
    ┌──────┴──────┐    ┌──────┴──────┐    ┌──────┴──────┐
    │   Client    │    │   Gateway   │    │   Client    │
-   │  (Go SDK)   │    │   Service   │    │  (any NATS  │
-   │             │    │             │    │   client)   │
+   │  (JS SDK)   │    │   Service   │    │  (Browser   │
+   │  Node/Bun   │    │   (Go)     │    │   via WS)   │
    └─────────────┘    └──────┬──────┘    └─────────────┘
                              │
           ┌──────────────────┼──────────────────┐
@@ -47,14 +51,16 @@ can be added later for legacy HTTP clients.
 ## 2. Goals
 
 1. **NATS-native protocol** — clients and gateway communicate purely over NATS (TCP or WebSocket).
-2. **SDK with OpenAI-compatible interface** — Go SDK that mirrors the OpenAI chat completion API types and calling conventions, making migration from `openai-go` trivial.
-3. **Multi-provider routing** — route to OpenAI, Anthropic, Ollama, vLLM, or any provider via pluggable adapters.
-4. **Model aliasing & mapping** — expose virtual model names that map to real provider:model pairs.
-5. **Streaming first** — token-by-token streaming over NATS subjects.
-6. **Rate limiting** — per-user, per-model, and global rate limits enforced at the gateway service.
-7. **Authentication** — leverage NATS native auth (NKeys, JWTs, tokens) + gateway-level API key validation.
-8. **Observability** — structured logging, Prometheus metrics, OpenTelemetry traces.
-9. **Future HTTP proxy** — a thin client-side HTTP→NATS proxy can be layered on later.
+2. **JavaScript SDK with OpenAI-compatible interface** — mirrors the `openai` npm package API. Applications using `new OpenAI()` can switch to `new NATSLLMClient()` with minimal code changes.
+3. **Multi-runtime** — SDK works in Node.js, Deno, Bun, and browsers.
+4. **Multi-provider routing** — route to OpenAI, Anthropic, Ollama, vLLM, or any provider via pluggable adapters.
+5. **Model aliasing & mapping** — expose virtual model names that map to real provider:model pairs.
+6. **Streaming first** — token-by-token streaming over NATS subjects, exposed as async iterables.
+7. **Rate limiting** — per-user, per-model, and global rate limits enforced at the gateway service.
+8. **Authentication** — leverage NATS native auth (NKeys, JWTs, tokens) + gateway-level API key validation.
+9. **Observability** — structured logging, Prometheus metrics, OpenTelemetry traces.
+10. **Future SDKs** — Go, Python SDKs can be added later following the same wire protocol.
+11. **Future HTTP proxy** — a thin client-side HTTP→NATS proxy can be layered on later.
 
 ---
 
@@ -64,21 +70,23 @@ can be added later for legacy HTTP clients.
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-1 | Go SDK: `ChatCompletion(ctx, req)` with OpenAI-compatible request/response types | P0 |
-| FR-2 | Go SDK: `ChatCompletionStream(ctx, req)` returning a token stream iterator | P0 |
-| FR-3 | Gateway service: accept requests on NATS subjects, route by model | P0 |
-| FR-4 | Provider adapters for OpenAI, Anthropic, Ollama | P0 |
-| FR-5 | Model aliasing — map virtual model names to provider:model pairs | P1 |
-| FR-6 | Authentication via NATS native auth (NKeys/JWTs) + gateway-level key check | P0 |
-| FR-7 | Per-user and per-model rate limiting at the gateway | P0 |
-| FR-8 | Return OpenAI-compatible response and error structures | P0 |
-| FR-9 | List available models via NATS request (`llm.models`) | P1 |
-| FR-10 | Request/response logging with redaction of sensitive fields | P1 |
-| FR-11 | Graceful shutdown with in-flight request draining | P1 |
-| FR-12 | Tool/function calling pass-through | P2 |
-| FR-13 | Provider failover — retry on a secondary provider if primary fails | P2 |
-| FR-14 | Client-side HTTP proxy (translates `POST /v1/chat/completions` ↔ NATS) | P2 |
-| FR-15 | Python SDK wrapper | P2 |
+| FR-1 | JS SDK: `chat.completions.create(req)` with OpenAI-compatible request/response types | P0 |
+| FR-2 | JS SDK: streaming via async iterable (`for await...of`) when `stream: true` | P0 |
+| FR-3 | JS SDK: works in Node.js (TCP) and browsers (WebSocket) | P0 |
+| FR-4 | Gateway service: accept requests on NATS subjects, route by model | P0 |
+| FR-5 | Provider adapters for OpenAI, Anthropic, Ollama | P0 |
+| FR-6 | Model aliasing — map virtual model names to provider:model pairs | P1 |
+| FR-7 | Authentication via NATS native auth + gateway-level API key check | P0 |
+| FR-8 | Per-user and per-model rate limiting at the gateway | P0 |
+| FR-9 | Return OpenAI-compatible response and error structures | P0 |
+| FR-10 | List available models via `models.list()` | P1 |
+| FR-11 | Request/response logging with redaction of sensitive fields | P1 |
+| FR-12 | Graceful shutdown with in-flight request draining | P1 |
+| FR-13 | Tool/function calling pass-through | P2 |
+| FR-14 | Provider failover — retry on a secondary provider if primary fails | P2 |
+| FR-15 | Client-side HTTP→NATS proxy | P2 |
+| FR-16 | Go SDK | P2 |
+| FR-17 | Python SDK | P2 |
 
 ### 3.2 Non-Functional Requirements
 
@@ -89,94 +97,112 @@ can be added later for legacy HTTP clients.
 | NFR-3 | Configuration hot-reload without restart | Yes |
 | NFR-4 | Single statically-linked binary (gateway) | Yes |
 | NFR-5 | Container image size | < 30 MB |
+| NFR-6 | JS SDK bundle size (browser, minified+gzipped) | < 20 KB (excl. NATS client) |
+| NFR-7 | JS SDK: zero dependencies beyond `nats.ws` / `nats` | Yes |
 
 ---
 
 ## 4. Architecture
 
-### 4.1 Components
+### 4.1 Repository Structure
 
 ```
 nats-llm-gateway/
+├── sdk/
+│   └── js/                        # JavaScript/TypeScript SDK
+│       ├── src/
+│       │   ├── index.ts           # Public API exports
+│       │   ├── client.ts          # NATSLLMClient — main entry point
+│       │   ├── chat.ts            # chat.completions namespace
+│       │   ├── models.ts          # models namespace
+│       │   ├── streaming.ts       # Async iterable stream wrapper
+│       │   └── types.ts           # OpenAI-compatible types
+│       ├── test/
+│       ├── package.json
+│       └── tsconfig.json
 ├── cmd/
-│   └── gateway/              # Gateway service binary
-├── pkg/
-│   └── client/               # Go SDK (public API for consumers)
-│       ├── client.go         # NATSChatClient — main entry point
-│       ├── types.go          # OpenAI-compatible request/response types
-│       └── stream.go         # Streaming iterator
-├── internal/
-│   ├── auth/                 # API-key / NATS credential validation
-│   ├── ratelimit/            # Sliding-window limiter (NATS KV backed)
-│   ├── router/               # Model → provider subject resolver
-│   ├── provider/             # Provider adapter interface + implementations
-│   │   ├── provider.go       # Interface
+│   └── gateway/                   # Gateway service binary (Go)
+├── internal/                      # Gateway internals (Go)
+│   ├── auth/
+│   ├── ratelimit/
+│   ├── router/
+│   ├── provider/
+│   │   ├── provider.go
 │   │   ├── openai/
 │   │   ├── anthropic/
 │   │   └── ollama/
-│   ├── config/               # Config loading, validation, hot-reload
-│   └── middleware/            # Gateway middleware chain (auth, ratelimit, logging)
+│   ├── config/
+│   └── middleware/
 ├── configs/
-│   └── gateway.yaml          # Reference configuration
+│   └── gateway.yaml
 ├── docs/
-│   └── DESIGN.md             # This document
+│   └── DESIGN.md
 ├── Dockerfile
 ├── go.mod
 └── go.sum
 ```
 
-### 4.2 SDK — Client Interface
+### 4.2 SDK — JavaScript Client Interface
 
-The SDK is the primary way applications interact with the gateway. It mirrors
-the OpenAI Go SDK calling conventions:
+The SDK mirrors the OpenAI JS SDK (`openai` npm package) interface:
 
-```go
-import "github.com/kamalgs/nats-llm-gateway/pkg/client"
+```typescript
+import { NATSLLMClient } from 'nats-llm-client';
 
-// Connect to NATS (supports TCP, WebSocket, TLS, NKey auth, etc.)
-llm, err := client.New(
-    client.WithNATSURL("wss://nats.example.com:443"),
-    client.WithAPIKey("sk-my-key"),
-)
-defer llm.Close()
+// Connect to NATS — Node.js (TCP) or browser (WebSocket)
+const client = new NATSLLMClient({
+  natsUrl: 'wss://nats.example.com:443',  // or 'nats://localhost:4222'
+  apiKey: 'sk-my-key',
+});
 
-// Non-streaming — identical shape to OpenAI's API
-resp, err := llm.ChatCompletion(ctx, &client.ChatCompletionRequest{
-    Model: "gpt-4o",
-    Messages: []client.Message{
-        {Role: "user", Content: "Hello!"},
-    },
-})
-fmt.Println(resp.Choices[0].Message.Content)
+// Non-streaming — same shape as OpenAI SDK
+const response = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello!' }],
+});
+console.log(response.choices[0].message.content);
 
-// Streaming
-stream, err := llm.ChatCompletionStream(ctx, &client.ChatCompletionRequest{
-    Model: "claude-sonnet",
-    Messages: []client.Message{
-        {Role: "user", Content: "Write a poem"},
-    },
-})
-for stream.Next() {
-    chunk := stream.Current()
-    fmt.Print(chunk.Choices[0].Delta.Content)
+// Streaming — async iterable, just like OpenAI SDK
+const stream = await client.chat.completions.create({
+  model: 'claude-sonnet',
+  messages: [{ role: 'user', content: 'Write a poem' }],
+  stream: true,
+});
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content || '');
 }
-if err := stream.Err(); err != nil {
-    log.Fatal(err)
-}
+
+// List models
+const models = await client.models.list();
+
+// Cleanup
+await client.close();
 ```
 
-**Migration path from OpenAI SDK**: The request/response types
-(`ChatCompletionRequest`, `ChatCompletionResponse`, `Message`, `Choice`, etc.)
-are intentionally compatible with OpenAI's schema. Switching from `openai-go`
-requires changing the client constructor and import path — the rest of the
-application code stays the same.
+**Migration from OpenAI SDK:**
+
+```typescript
+// Before (OpenAI SDK)
+import OpenAI from 'openai';
+const client = new OpenAI({ apiKey: 'sk-...' });
+
+// After (NATS LLM Gateway SDK)
+import { NATSLLMClient } from 'nats-llm-client';
+const client = new NATSLLMClient({ natsUrl: 'nats://localhost:4222', apiKey: 'sk-...' });
+
+// Everything below stays IDENTICAL:
+const resp = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello!' }],
+});
+```
 
 ### 4.3 Request Flow
 
 #### Non-Streaming (NATS Request/Reply)
 
 ```
-Client SDK                    Gateway Service              Provider Adapter
+JS SDK                        Gateway Service              Provider Adapter
     │                              │                              │
     │  NATS Request                │                              │
     │  subject: llm.chat.complete  │                              │
@@ -200,7 +226,7 @@ Client SDK                    Gateway Service              Provider Adapter
 #### Streaming (NATS Pub/Sub)
 
 ```
-Client SDK                    Gateway Service              Provider Adapter
+JS SDK                        Gateway Service              Provider Adapter
     │                              │                              │
     │  NATS Request                │                              │
     │  subject: llm.chat.stream    │                              │
@@ -316,8 +342,6 @@ for gateway-level auth (complementing NATS-level auth).
 # configs/gateway.yaml
 nats:
   url: "nats://localhost:4222"
-  # For WebSocket clients, NATS server must be configured with websocket listener
-  # (this is NATS server config, not gateway config)
 
 auth:
   enabled: true
@@ -391,6 +415,8 @@ subject.
 
 ## 5. Technology Choices
 
+### Gateway Service
+
 | Component | Choice | Rationale |
 |---|---|---|
 | Language | **Go** | Single binary, excellent concurrency, NATS has first-class Go client |
@@ -400,20 +426,31 @@ subject.
 | Metrics | `github.com/prometheus/client_golang` | Industry standard |
 | Rate limiting | Custom (sliding window over NATS KV) | Distributed-friendly, no external deps |
 
+### JavaScript SDK
+
+| Component | Choice | Rationale |
+|---|---|---|
+| Language | **TypeScript** | Type safety, great DX, matches OpenAI SDK conventions |
+| NATS client | `nats` / `nats.ws` | Official NATS.js client — `nats` for Node/Deno/Bun, `nats.ws` for browsers |
+| Build | `tsup` | Fast, zero-config bundler for libraries |
+| Test | `vitest` | Fast, TypeScript-native |
+| Package | `nats-llm-client` | Published to npm |
+
 ---
 
 ## 6. Milestones
 
 ### M1 — Walking Skeleton
-- [ ] Project scaffolding (Go module, directory structure)
-- [ ] SDK: `client.New()` with NATS connection
-- [ ] SDK: `ChatCompletion()` — non-streaming request/reply
+- [ ] JS SDK: `NATSLLMClient` with NATS connection (Node.js TCP)
+- [ ] JS SDK: `chat.completions.create()` — non-streaming request/reply
+- [ ] JS SDK: OpenAI-compatible types (TypeScript)
 - [ ] Gateway service: subscribe to `llm.chat.complete`, route to provider
 - [ ] OpenAI provider adapter (pass-through)
-- [ ] End-to-end: SDK → NATS → Gateway → OpenAI → response
+- [ ] End-to-end: JS SDK → NATS → Gateway → OpenAI → response
 
 ### M2 — Streaming & Multi-Provider
-- [ ] SDK: `ChatCompletionStream()` with iterator
+- [ ] JS SDK: streaming via async iterable (`for await...of`)
+- [ ] JS SDK: browser support via `nats.ws` (WebSocket)
 - [ ] Gateway + adapter streaming via NATS pub/sub
 - [ ] Anthropic provider adapter (Messages API → OpenAI format translation)
 - [ ] Ollama provider adapter
@@ -430,14 +467,15 @@ subject.
 - [ ] Graceful shutdown with in-flight draining
 - [ ] Config hot-reload via NATS signal
 - [ ] Dockerfile & docker-compose (gateway + NATS server with WS enabled)
-- [ ] Integration tests
+- [ ] Integration tests (JS SDK ↔ gateway ↔ mock provider)
 
 ### M5 — Advanced Features
 - [ ] Tool/function calling pass-through
 - [ ] Provider failover
 - [ ] NATS JetStream persistence mode
 - [ ] Client-side HTTP→NATS proxy (`POST /v1/chat/completions` for legacy clients)
-- [ ] Python SDK wrapper
+- [ ] Go SDK
+- [ ] Python SDK
 - [ ] Additional provider adapters (Google Vertex, vLLM)
 
 ---
@@ -462,3 +500,9 @@ subject.
    Trade-off: gateway can't observe/meter individual chunks. If per-token
    metering is needed, chunks can be routed through the gateway with a
    subject rewrite.
+
+5. **NATS.js client choice for SDK?**
+   The official `nats` package (nats.js v2+) supports Node.js, Deno, and Bun
+   natively. For browsers, `nats.ws` provides WebSocket transport. The SDK
+   should accept either a pre-connected NATS connection or auto-detect the
+   runtime and pick the right transport.
