@@ -1,56 +1,70 @@
 # nats-llm-gateway
 
-A lightweight, high-performance LLM gateway that uses [NATS](https://nats.io) as its messaging backbone.
-
-**Expose a single OpenAI-compatible API → route to any LLM provider.**
+A **NATS-native** LLM gateway. Clients connect directly to NATS (TCP or WebSocket) — no HTTP layer in the gateway. A Go SDK provides an OpenAI-compatible interface over NATS.
 
 ```
-Client ──► Gateway (HTTP) ──► NATS ──► Provider Adapters ──► OpenAI / Anthropic / Ollama / ...
+Client (Go SDK) ──► NATS ──► Gateway Service ──► Provider Adapters ──► OpenAI / Anthropic / Ollama / ...
 ```
 
 ## Features
 
-- **OpenAI-compatible API** — drop-in replacement; any OpenAI SDK client works unchanged
+- **NATS-native** — no HTTP in the hot path; clients speak NATS protocol directly (TCP or WebSocket)
+- **OpenAI-compatible SDK** — drop-in Go SDK with familiar `ChatCompletion` / `ChatCompletionStream` interface
 - **Multi-provider routing** — route to OpenAI, Anthropic, Ollama, and more via pluggable adapters
-- **NATS-powered** — decoupled, scalable architecture with queue-group load balancing
-- **Streaming** — SSE streaming support out of the box
-- **Rate limiting** — per-key, per-model, and global rate limits
-- **Authentication** — API-key auth with per-key model restrictions
+- **Streaming** — token-by-token streaming over NATS subjects, chunks flow direct from adapter to client
+- **Rate limiting** — per-key, per-model, and global limits backed by NATS KV
+- **Authentication** — two layers: NATS native auth (NKeys/JWTs) + gateway API key validation
 - **Observable** — structured logging, Prometheus metrics
-- **Single binary** — one `go build`, one container, done
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.22+, NATS server running on localhost:4222
+# Prerequisites: Go 1.22+, NATS server on localhost:4222
 
-# Clone and build
 git clone https://github.com/kamalgs/nats-llm-gateway.git
 cd nats-llm-gateway
-go build -o gateway ./cmd/gateway
 
-# Configure (edit configs/gateway.yaml with your API keys)
+# Start the gateway service
 cp configs/gateway.yaml.example configs/gateway.yaml
-
-# Run
-./gateway --config configs/gateway.yaml
+# Edit configs/gateway.yaml with your provider API keys
+go run ./cmd/gateway --config configs/gateway.yaml
 ```
 
-Then use it like any OpenAI endpoint:
+Use the SDK in your application:
 
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer sk-your-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
+```go
+import "github.com/kamalgs/nats-llm-gateway/pkg/client"
+
+llm, _ := client.New(
+    client.WithNATSURL("nats://localhost:4222"),
+    client.WithAPIKey("sk-my-key"),
+)
+defer llm.Close()
+
+// Non-streaming
+resp, _ := llm.ChatCompletion(ctx, &client.ChatCompletionRequest{
+    Model: "gpt-4o",
+    Messages: []client.Message{
+        {Role: "user", Content: "Hello!"},
+    },
+})
+fmt.Println(resp.Choices[0].Message.Content)
+
+// Streaming
+stream, _ := llm.ChatCompletionStream(ctx, &client.ChatCompletionRequest{
+    Model: "claude-sonnet",
+    Messages: []client.Message{
+        {Role: "user", Content: "Write a poem"},
+    },
+})
+for stream.Next() {
+    fmt.Print(stream.Current().Choices[0].Delta.Content)
+}
 ```
 
 ## Documentation
 
-- [Design & Requirements](docs/DESIGN.md) — architecture, requirements, and milestones
+- [Design & Requirements](docs/DESIGN.md) — architecture, SDK design, NATS subject layout, and milestones
 
 ## License
 
