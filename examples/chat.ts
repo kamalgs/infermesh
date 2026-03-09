@@ -8,6 +8,12 @@ import { InferMeshClient, type Message } from "../sdk/js/src/index.js";
 const natsUrl = process.env.NATS_URL || "nats://localhost:14225";
 let model = process.env.MODEL || "ollama.qwen2.5:0.5b";
 
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 async function main() {
   const client = await InferMeshClient.connect({ natsUrl });
   console.log(`InferMesh Chat — ${model} via ${natsUrl}`);
@@ -22,6 +28,8 @@ async function main() {
 
   const history: Message[] = [];
   let eofReached = false;
+  let totalBytesSent = 0;
+  let totalBytesReceived = 0;
 
   rl.on("close", () => {
     eofReached = true;
@@ -55,15 +63,19 @@ async function main() {
     history.push({ role: "user", content: trimmed });
 
     try {
-      const resp = await client.chat.completions.create({
+      const result = await client.chat.completions.createWithStats({
         model,
         messages: history,
         max_tokens: 512,
       });
 
-      const reply = resp.choices[0]?.message?.content ?? "(no response)";
+      totalBytesSent += result.bytesSent;
+      totalBytesReceived += result.bytesReceived;
+
+      const reply = result.response.choices[0]?.message?.content ?? "(no response)";
       history.push({ role: "assistant", content: reply });
-      console.log(`\n${reply}\n`);
+      console.log(`\n${reply}`);
+      console.log(`  [sent: ${fmtBytes(result.bytesSent)} | recv: ${fmtBytes(result.bytesReceived)} | total: ${fmtBytes(totalBytesSent)}/${fmtBytes(totalBytesReceived)}]\n`);
     } catch (err: any) {
       console.error(`Error: ${err.message}`);
       history.pop();

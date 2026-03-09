@@ -24,10 +24,26 @@ function parseModel(model: string): { provider: string; upstream: string } {
   return { provider: model.slice(0, i), upstream: model.slice(i + 1) };
 }
 
+export interface ChatCompletionResult {
+  response: ChatCompletionResponse;
+  bytesSent: number;
+  bytesReceived: number;
+}
+
 export class ChatCompletions {
   constructor(private nc: NatsConnection) {}
 
+  async createWithStats(req: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    const result = await this._send(req);
+    return result;
+  }
+
   async create(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    const result = await this._send(req);
+    return result.response;
+  }
+
+  private async _send(req: ChatCompletionRequest): Promise<ChatCompletionResult> {
     const { provider, upstream } = parseModel(req.model);
     const subject = `llm.provider.${provider}.${upstream}`;
 
@@ -45,6 +61,7 @@ export class ChatCompletions {
     this.nc.publish(subject, payload, { reply: replySubject });
 
     for await (const msg of sub) {
+      const bytesReceived = msg.data.length;
       const data = JSON.parse(sc.decode(msg.data));
 
       if (data.error) {
@@ -52,7 +69,11 @@ export class ChatCompletions {
         throw new Error(`[${err.error.code}] ${err.error.message}`);
       }
 
-      return data as ChatCompletionResponse;
+      return {
+        response: data as ChatCompletionResponse,
+        bytesSent: payload.length,
+        bytesReceived,
+      };
     }
 
     throw new Error("no response received");
