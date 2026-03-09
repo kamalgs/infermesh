@@ -10,6 +10,7 @@ import (
 
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	"github.com/kamalgs/infermesh/internal/testutil"
 )
 
@@ -226,7 +227,9 @@ func TestAdapter_NATSSubscription(t *testing.T) {
 		APIKey:  "test-key",
 	}, noopLogger())
 
-	sub, err := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, noopLogger())
+	defer handler.Close()
+	sub, err := handler.Subscribe(QueueGroup)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -259,7 +262,9 @@ func TestAdapter_NATSInvalidPayload(t *testing.T) {
 	_, nc := testutil.StartNATS(t)
 
 	adapter := NewAdapter(config.ProviderConfig{}, noopLogger())
-	sub, err := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, noopLogger())
+	defer handler.Close()
+	sub, err := handler.Subscribe(QueueGroup)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}

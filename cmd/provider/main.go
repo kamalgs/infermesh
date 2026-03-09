@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	"github.com/kamalgs/infermesh/internal/provider/anthropic"
 	"github.com/kamalgs/infermesh/internal/provider/ollama"
 	"github.com/kamalgs/infermesh/internal/provider/openai"
@@ -54,22 +55,27 @@ func main() {
 
 	plog := log.With("component", fmt.Sprintf("provider-%s", providerName))
 
-	var sub *nats.Subscription
+	var adapter provider.Provider
+	var queueGroup string
 	switch providerName {
 	case "openai":
-		adapter := openai.NewAdapter(provCfg, plog)
-		sub, err = adapter.Subscribe(nc)
+		adapter = openai.NewAdapter(provCfg, plog)
+		queueGroup = openai.QueueGroup
 	case "anthropic":
-		adapter := anthropic.NewAdapter(provCfg, plog)
-		sub, err = adapter.Subscribe(nc)
+		adapter = anthropic.NewAdapter(provCfg, plog)
+		queueGroup = anthropic.QueueGroup
 	case "ollama":
-		adapter := ollama.NewAdapter(provCfg, plog)
-		sub, err = adapter.Subscribe(nc)
+		adapter = ollama.NewAdapter(provCfg, plog)
+		queueGroup = ollama.QueueGroup
 	default:
 		log.Error("unknown provider", "provider", providerName)
 		os.Exit(1)
 	}
 
+	handler := provider.NewSessionHandler(adapter, nc, plog)
+	defer handler.Close()
+
+	sub, err := handler.Subscribe(queueGroup)
 	if err != nil {
 		log.Error("failed to start adapter", "provider", providerName, "error", err)
 		os.Exit(1)

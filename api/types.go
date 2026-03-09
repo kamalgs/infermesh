@@ -9,6 +9,7 @@ type ChatRequest struct {
 	Messages    []Message `json:"messages"`
 	Temperature *float64  `json:"temperature,omitempty"`
 	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	SessionID   string    `json:"session_id,omitempty"`
 }
 
 type Message struct {
@@ -17,12 +18,14 @@ type Message struct {
 }
 
 type ChatResponse struct {
-	ID      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int64    `json:"created"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
-	Usage   *Usage   `json:"usage,omitempty"`
+	ID             string   `json:"id"`
+	Object         string   `json:"object"`
+	Created        int64    `json:"created"`
+	Model          string   `json:"model"`
+	Choices        []Choice `json:"choices"`
+	Usage          *Usage   `json:"usage,omitempty"`
+	SessionID      string   `json:"session_id,omitempty"`
+	SessionSubject string   `json:"session_subject,omitempty"`
 }
 
 type Choice struct {

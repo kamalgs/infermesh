@@ -9,6 +9,7 @@ import (
 
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	anthropicAdapter "github.com/kamalgs/infermesh/internal/provider/anthropic"
 	ollamaAdapter "github.com/kamalgs/infermesh/internal/provider/ollama"
 	openaiAdapter "github.com/kamalgs/infermesh/internal/provider/openai"
@@ -102,21 +103,27 @@ func TestMultiProvider_Routing(t *testing.T) {
 
 	// Start all three provider adapters
 	oa := openaiAdapter.NewAdapter(config.ProviderConfig{BaseURL: openaiMock.URL, APIKey: "test-key"}, log)
-	oaSub, err := oa.Subscribe(nc)
+	oaH := provider.NewSessionHandler(oa, nc, log)
+	defer oaH.Close()
+	oaSub, err := oaH.Subscribe(openaiAdapter.QueueGroup)
 	if err != nil {
 		t.Fatalf("subscribe openai: %v", err)
 	}
 	defer oaSub.Drain()
 
 	aa := anthropicAdapter.NewAdapter(config.ProviderConfig{BaseURL: anthropicMock.URL, APIKey: "test-key"}, log)
-	aaSub, err := aa.Subscribe(nc)
+	aaH := provider.NewSessionHandler(aa, nc, log)
+	defer aaH.Close()
+	aaSub, err := aaH.Subscribe(anthropicAdapter.QueueGroup)
 	if err != nil {
 		t.Fatalf("subscribe anthropic: %v", err)
 	}
 	defer aaSub.Drain()
 
 	ol := ollamaAdapter.NewAdapter(config.ProviderConfig{BaseURL: ollamaMock.URL}, log)
-	olSub, err := ol.Subscribe(nc)
+	olH := provider.NewSessionHandler(ol, nc, log)
+	defer olH.Close()
+	olSub, err := olH.Subscribe(ollamaAdapter.QueueGroup)
 	if err != nil {
 		t.Fatalf("subscribe ollama: %v", err)
 	}
@@ -181,16 +188,22 @@ func TestMultiProvider_UnifiedResponseFormat(t *testing.T) {
 	_, nc := testutil.StartNATS(t)
 	log := silentLogger()
 
-	oa := openaiAdapter.NewAdapter(config.ProviderConfig{BaseURL: openaiMock.URL, APIKey: "test-key"}, log)
-	oaSub, _ := oa.Subscribe(nc)
+	oa2 := openaiAdapter.NewAdapter(config.ProviderConfig{BaseURL: openaiMock.URL, APIKey: "test-key"}, log)
+	oaH2 := provider.NewSessionHandler(oa2, nc, log)
+	defer oaH2.Close()
+	oaSub, _ := oaH2.Subscribe(openaiAdapter.QueueGroup)
 	defer oaSub.Drain()
 
-	aa := anthropicAdapter.NewAdapter(config.ProviderConfig{BaseURL: anthropicMock.URL, APIKey: "test-key"}, log)
-	aaSub, _ := aa.Subscribe(nc)
+	aa2 := anthropicAdapter.NewAdapter(config.ProviderConfig{BaseURL: anthropicMock.URL, APIKey: "test-key"}, log)
+	aaH2 := provider.NewSessionHandler(aa2, nc, log)
+	defer aaH2.Close()
+	aaSub, _ := aaH2.Subscribe(anthropicAdapter.QueueGroup)
 	defer aaSub.Drain()
 
-	ol := ollamaAdapter.NewAdapter(config.ProviderConfig{BaseURL: ollamaMock.URL}, log)
-	olSub, _ := ol.Subscribe(nc)
+	ol2 := ollamaAdapter.NewAdapter(config.ProviderConfig{BaseURL: ollamaMock.URL}, log)
+	olH2 := provider.NewSessionHandler(ol2, nc, log)
+	defer olH2.Close()
+	olSub, _ := olH2.Subscribe(ollamaAdapter.QueueGroup)
 	defer olSub.Drain()
 
 	// All responses should have the same unified format regardless of provider

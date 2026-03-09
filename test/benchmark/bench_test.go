@@ -15,6 +15,7 @@ import (
 
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	openaiAdapter "github.com/kamalgs/infermesh/internal/provider/openai"
 	"github.com/kamalgs/infermesh/internal/proxy"
 	"github.com/kamalgs/infermesh/internal/testutil"
@@ -69,7 +70,9 @@ func setupBenchStack(b *testing.B) *benchStack {
 	log := silentLogger()
 
 	adapter := openaiAdapter.NewAdapter(config.ProviderConfig{BaseURL: mock.URL, APIKey: "key"}, log)
-	sub, _ := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, log)
+	b.Cleanup(handler.Close)
+	sub, _ := handler.Subscribe(openaiAdapter.QueueGroup)
 	b.Cleanup(func() { sub.Drain() })
 
 	// Model uses provider.model convention

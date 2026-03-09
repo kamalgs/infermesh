@@ -12,6 +12,7 @@ export interface ChatCompletionRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  session_id?: string;
 }
 
 export interface ChatCompletionResponse {
@@ -21,6 +22,8 @@ export interface ChatCompletionResponse {
   model: string;
   choices: Choice[];
   usage?: Usage;
+  session_id?: string;
+  session_subject?: string;
 }
 
 export interface Choice {

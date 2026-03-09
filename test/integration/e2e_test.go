@@ -16,6 +16,7 @@ import (
 
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	openaiAdapter "github.com/kamalgs/infermesh/internal/provider/openai"
 	"github.com/kamalgs/infermesh/internal/proxy"
 	"github.com/kamalgs/infermesh/internal/testutil"
@@ -74,9 +75,11 @@ func startStack(t *testing.T) (proxyURL string) {
 	cfg := config.ProviderConfig{BaseURL: mock.URL, APIKey: "test-key"}
 	log := silentLogger()
 
-	// Start provider adapter
+	// Start provider adapter with session handler
 	adapter := openaiAdapter.NewAdapter(cfg, log)
-	sub, err := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, log)
+	t.Cleanup(handler.Close)
+	sub, err := handler.Subscribe(openaiAdapter.QueueGroup)
 	if err != nil {
 		t.Fatalf("subscribe adapter: %v", err)
 	}
@@ -180,7 +183,9 @@ func TestE2E_NATSDirectProviderRequest(t *testing.T) {
 	log := silentLogger()
 
 	adapter := openaiAdapter.NewAdapter(cfg, log)
-	sub, _ := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, log)
+	defer handler.Close()
+	sub, _ := handler.Subscribe(openaiAdapter.QueueGroup)
 	defer sub.Drain()
 
 	// Send directly to provider subject (what SDK would do)

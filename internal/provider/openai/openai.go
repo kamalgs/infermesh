@@ -13,7 +13,6 @@ import (
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
 	"github.com/kamalgs/infermesh/internal/provider"
-	"github.com/nats-io/nats.go"
 )
 
 const QueueGroup = "provider-openai"
@@ -93,50 +92,3 @@ func (a *Adapter) ChatCompletion(ctx context.Context, req *api.ProviderRequest) 
 	return &chatResp, nil
 }
 
-// Subscribe registers this adapter as a NATS subscriber on llm.provider.openai.
-// The proxy publishes requests to this subject; the adapter processes them independently.
-func (a *Adapter) Subscribe(nc *nats.Conn) (*nats.Subscription, error) {
-	subject := "llm.provider." + a.Name() + ".>"
-	sub, err := nc.QueueSubscribe(subject, QueueGroup, func(msg *nats.Msg) {
-		a.handleMessage(msg)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("subscribe %s: %w", subject, err)
-	}
-	a.log.Info("provider adapter listening", "subject", subject, "queue", QueueGroup)
-	return sub, nil
-}
-
-func (a *Adapter) handleMessage(msg *nats.Msg) {
-	var req api.ProviderRequest
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		a.replyError(msg, "invalid_request", "failed to parse provider request: "+err.Error())
-		return
-	}
-
-	resp, err := a.ChatCompletion(context.Background(), &req)
-	if err != nil {
-		a.replyError(msg, "provider_error", err.Error())
-		return
-	}
-
-	data, err := json.Marshal(resp)
-	if err != nil {
-		a.replyError(msg, "internal_error", "failed to marshal response")
-		return
-	}
-	_ = msg.Respond(data)
-}
-
-func (a *Adapter) replyError(msg *nats.Msg, code, message string) {
-	a.log.Error("provider error", "code", code, "message", message)
-	errResp := api.ErrorResponse{
-		Error: api.APIError{
-			Message: message,
-			Type:    "error",
-			Code:    code,
-		},
-	}
-	data, _ := json.Marshal(errResp)
-	_ = msg.Respond(data)
-}

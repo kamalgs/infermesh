@@ -1,9 +1,10 @@
 #!/usr/bin/env npx tsx
 // Interactive chat CLI using InferMeshClient over NATS (no HTTP proxy needed).
+// Uses sticky sessions: provider maintains context, client sends only new messages.
 // Run: NATS_URL=nats://localhost:14225 npx tsx examples/chat.ts
 
 import * as readline from "readline";
-import { InferMeshClient, type Message } from "../sdk/js/src/index.js";
+import { InferMeshClient } from "../sdk/js/src/index.js";
 
 const natsUrl = process.env.NATS_URL || "nats://localhost:14225";
 let model = process.env.MODEL || "ollama.qwen2.5:0.5b";
@@ -18,7 +19,7 @@ async function main() {
   const client = await InferMeshClient.connect({ natsUrl });
   console.log(`InferMesh Chat — ${model} via ${natsUrl}`);
   console.log(
-    "Type /quit to exit, /model <name> to switch models, /clear to reset history.\n"
+    "Type /quit to exit, /model <name> to switch models, /clear to reset session.\n"
   );
 
   const rl = readline.createInterface({
@@ -26,7 +27,7 @@ async function main() {
     output: process.stdout,
   });
 
-  const history: Message[] = [];
+  let session = client.chat.createSession(model);
   let eofReached = false;
   let totalBytesSent = 0;
   let totalBytesReceived = 0;
@@ -50,35 +51,35 @@ async function main() {
 
     if (trimmed === "/quit") break;
     if (trimmed === "/clear") {
-      history.length = 0;
-      console.log("History cleared.");
+      session = client.chat.createSession(model);
+      totalBytesSent = 0;
+      totalBytesReceived = 0;
+      console.log("Session cleared.");
       continue;
     }
     if (trimmed.startsWith("/model ")) {
       model = trimmed.slice(7).trim();
+      session = client.chat.createSession(model);
+      totalBytesSent = 0;
+      totalBytesReceived = 0;
       console.log(`Switched to ${model}`);
       continue;
     }
 
-    history.push({ role: "user", content: trimmed });
-
     try {
-      const result = await client.chat.completions.createWithStats({
-        model,
-        messages: history,
-        max_tokens: 512,
-      });
+      const result = await session.send(trimmed, { max_tokens: 512 });
 
       totalBytesSent += result.bytesSent;
       totalBytesReceived += result.bytesReceived;
 
       const reply = result.response.choices[0]?.message?.content ?? "(no response)";
-      history.push({ role: "assistant", content: reply });
+      const sid = session.getSessionId();
       console.log(`\n${reply}`);
-      console.log(`  [sent: ${fmtBytes(result.bytesSent)} | recv: ${fmtBytes(result.bytesReceived)} | total: ${fmtBytes(totalBytesSent)}/${fmtBytes(totalBytesReceived)}]\n`);
+      console.log(
+        `  [sent: ${fmtBytes(result.bytesSent)} | recv: ${fmtBytes(result.bytesReceived)} | total: ${fmtBytes(totalBytesSent)}/${fmtBytes(totalBytesReceived)}${sid ? ` | session: ${sid.slice(0, 8)}` : ""}]\n`
+      );
     } catch (err: any) {
       console.error(`Error: ${err.message}`);
-      history.pop();
     }
   }
 

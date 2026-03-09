@@ -10,6 +10,7 @@ import (
 
 	"github.com/kamalgs/infermesh/api"
 	"github.com/kamalgs/infermesh/internal/config"
+	"github.com/kamalgs/infermesh/internal/provider"
 	"github.com/kamalgs/infermesh/internal/testutil"
 	"github.com/nats-io/nats.go"
 )
@@ -127,7 +128,9 @@ func TestAdapter_NATSSubscription(t *testing.T) {
 		APIKey:  "test-key",
 	}, noopLogger())
 
-	sub, err := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, noopLogger())
+	defer handler.Close()
+	sub, err := handler.Subscribe(QueueGroup)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -161,7 +164,9 @@ func TestAdapter_NATSInvalidPayload(t *testing.T) {
 	_, nc := testutil.StartNATS(t)
 
 	adapter := NewAdapter(config.ProviderConfig{}, noopLogger())
-	sub, err := adapter.Subscribe(nc)
+	handler := provider.NewSessionHandler(adapter, nc, noopLogger())
+	defer handler.Close()
+	sub, err := handler.Subscribe(QueueGroup)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -188,13 +193,17 @@ func TestAdapter_MultipleSubscribers(t *testing.T) {
 
 	// Start two adapter instances on the same queue group
 	a1 := NewAdapter(cfg, noopLogger())
-	a2 := NewAdapter(cfg, noopLogger())
-	s1, _ := a1.Subscribe(nc)
+	h1 := provider.NewSessionHandler(a1, nc, noopLogger())
+	defer h1.Close()
+	s1, _ := h1.Subscribe(QueueGroup)
 	defer s1.Drain()
 
 	nc2, _ := nats.Connect(nc.ConnectedUrl())
 	defer nc2.Close()
-	s2, _ := a2.Subscribe(nc2)
+	a2 := NewAdapter(cfg, noopLogger())
+	h2 := provider.NewSessionHandler(a2, nc2, noopLogger())
+	defer h2.Close()
+	s2, _ := h2.Subscribe(QueueGroup)
 	defer s2.Drain()
 
 	// Send multiple requests — they should be distributed
