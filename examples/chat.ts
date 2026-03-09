@@ -31,6 +31,8 @@ async function main() {
   let eofReached = false;
   let totalBytesSent = 0;
   let totalBytesReceived = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
   rl.on("close", () => {
     eofReached = true;
@@ -54,6 +56,8 @@ async function main() {
       session = client.chat.createSession(model);
       totalBytesSent = 0;
       totalBytesReceived = 0;
+      totalPromptTokens = 0;
+      totalCompletionTokens = 0;
       console.log("Session cleared.");
       continue;
     }
@@ -62,6 +66,8 @@ async function main() {
       session = client.chat.createSession(model);
       totalBytesSent = 0;
       totalBytesReceived = 0;
+      totalPromptTokens = 0;
+      totalCompletionTokens = 0;
       console.log(`Switched to ${model}`);
       continue;
     }
@@ -72,11 +78,17 @@ async function main() {
       totalBytesSent += result.bytesSent;
       totalBytesReceived += result.bytesReceived;
 
+      const usage = result.response.usage;
+      const promptTok = usage?.prompt_tokens ?? 0;
+      const completionTok = usage?.completion_tokens ?? 0;
+      totalPromptTokens += promptTok;
+      totalCompletionTokens += completionTok;
+
       const reply = result.response.choices[0]?.message?.content ?? "(no response)";
       const sid = session.getSessionId();
       console.log(`\n${reply}`);
       console.log(
-        `  [sent: ${fmtBytes(result.bytesSent)} | recv: ${fmtBytes(result.bytesReceived)} | total: ${fmtBytes(totalBytesSent)}/${fmtBytes(totalBytesReceived)}${sid ? ` | session: ${sid.slice(0, 8)}` : ""}]\n`
+        `  [tokens: ${promptTok}+${completionTok} (${totalPromptTokens}+${totalCompletionTokens}) | bytes: ${fmtBytes(result.bytesSent)}/${fmtBytes(result.bytesReceived)} (${fmtBytes(totalBytesSent)}/${fmtBytes(totalBytesReceived)})${sid ? ` | session: ${sid.slice(0, 8)}` : ""}]\n`
       );
     } catch (err: any) {
       console.error(`Error: ${err.message}`);
