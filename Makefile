@@ -5,6 +5,7 @@ build:
 	go build -o proxy ./cmd/proxy
 	go build -o provider ./cmd/provider
 	go build -o mockllm ./cmd/mockllm
+	go build -o chat ./cmd/chat
 
 # Unit tests (fast, no external deps)
 test-unit:
@@ -32,15 +33,21 @@ bench:
 test-v:
 	go test ./api/... ./internal/... ./test/integration/... -v -count=1
 
-# Demo (multi-provider with mock LLM)
+# Demo (Ollama provider on CPU, SDK client via NATS)
 demo-up:
 	docker compose -f demo/docker-compose.yaml up --build -d
 
 demo-down:
-	docker compose -f demo/docker-compose.yaml down
+	docker compose -f demo/docker-compose.yaml down -v
 
 demo-test:
 	bash demo/demo.sh
 
+demo-logs:
+	docker compose -f demo/docker-compose.yaml logs -f
+
+demo-chat:
+	cd sdk/js && NATS_URL=nats://localhost:14225 npx tsx ../../examples/chat.ts
+
 clean:
-	rm -f proxy provider mockllm
+	rm -f proxy provider mockllm chat

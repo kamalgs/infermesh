@@ -66,7 +66,7 @@ func mockAnthropicServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// mockOllamaServer returns a mock that serves Ollama-compatible responses.
+// mockOllamaServer returns a mock that serves Ollama's native /api/chat responses.
 func mockOllamaServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,17 +74,16 @@ func mockOllamaServer(t *testing.T) *httptest.Server {
 		json.NewDecoder(r.Body).Decode(&body)
 		model, _ := body["model"].(string)
 
-		resp := api.ChatResponse{
-			ID:      "ollama-multi",
-			Object:  "chat.completion",
-			Created: time.Now().Unix(),
-			Model:   model,
-			Choices: []api.Choice{{
-				Index:        0,
-				Message:      &api.Message{Role: "assistant", Content: "ollama: " + model},
-				FinishReason: "stop",
-			}},
-			Usage: &api.Usage{PromptTokens: 6, CompletionTokens: 3, TotalTokens: 9},
+		resp := map[string]any{
+			"model":             model,
+			"created_at":        "2024-01-01T00:00:00Z",
+			"message":           map[string]any{"role": "assistant", "content": "ollama: " + model},
+			"done":              true,
+			"done_reason":       "stop",
+			"total_duration":    500000000,
+			"load_duration":     100000000,
+			"prompt_eval_count": 6,
+			"eval_count":        3,
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))

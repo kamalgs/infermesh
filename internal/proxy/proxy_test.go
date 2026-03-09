@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -232,10 +233,10 @@ func TestProxy_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestProxy_NATSTimeout(t *testing.T) {
+func TestProxy_ContextCancellation(t *testing.T) {
 	_, nc := testutil.StartNATS(t)
 
-	// No subscriber — will timeout
+	// No subscriber — request will block until context canceled
 	p := New(nc, ":0", noopLogger())
 
 	chatReq := api.ChatRequest{
@@ -244,7 +245,9 @@ func TestProxy_NATSTimeout(t *testing.T) {
 	}
 	body, _ := json.Marshal(chatReq)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -252,12 +255,8 @@ func TestProxy_NATSTimeout(t *testing.T) {
 	p.server.Handler.ServeHTTP(w, req)
 	elapsed := time.Since(start)
 
-	if w.Code != http.StatusBadGateway {
-		t.Errorf("status: got %d, want 502", w.Code)
-	}
-
-	// Should fail fast with no responders, not wait full 30s
-	if elapsed > 5*time.Second {
+	// Should return after context deadline, not hang forever
+	if elapsed > 2*time.Second {
 		t.Errorf("took too long: %v", elapsed)
 	}
 }

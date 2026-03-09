@@ -17,11 +17,11 @@ func noopLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// mockOllama returns an httptest.Server that mimics Ollama's OpenAI-compatible endpoint.
+// mockOllama returns an httptest.Server that mimics Ollama's native /api/chat endpoint.
 func mockOllama(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
+		if r.URL.Path != "/api/chat" {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -35,21 +35,19 @@ func mockOllama(t *testing.T) *httptest.Server {
 			t.Error("ollama should not receive Authorization header")
 		}
 
-		var body map[string]any
+		var body ollamaRequest
 		json.NewDecoder(r.Body).Decode(&body)
-		model, _ := body["model"].(string)
 
-		resp := api.ChatResponse{
-			ID:      "ollama-test",
-			Object:  "chat.completion",
-			Created: 1700000000,
-			Model:   model,
-			Choices: []api.Choice{{
-				Index:        0,
-				Message:      &api.Message{Role: "assistant", Content: "mock ollama response"},
-				FinishReason: "stop",
-			}},
-			Usage: &api.Usage{PromptTokens: 8, CompletionTokens: 4, TotalTokens: 12},
+		resp := ollamaResponse{
+			Model:     body.Model,
+			CreatedAt: "2024-01-01T00:00:00Z",
+			Message:   api.Message{Role: "assistant", Content: "mock ollama response"},
+			Done:      true,
+			DoneReason:      "stop",
+			TotalDuration:   500000000,
+			LoadDuration:    100000000,
+			PromptEvalCount: 8,
+			EvalCount:       4,
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -82,8 +80,60 @@ func TestAdapter_ChatCompletion(t *testing.T) {
 	if resp.Choices[0].Message.Content != "mock ollama response" {
 		t.Errorf("content: got %q", resp.Choices[0].Message.Content)
 	}
+	if resp.Usage.PromptTokens != 8 {
+		t.Errorf("prompt_tokens: got %d, want 8", resp.Usage.PromptTokens)
+	}
+	if resp.Usage.CompletionTokens != 4 {
+		t.Errorf("completion_tokens: got %d, want 4", resp.Usage.CompletionTokens)
+	}
 	if resp.Usage.TotalTokens != 12 {
-		t.Errorf("total_tokens: got %d", resp.Usage.TotalTokens)
+		t.Errorf("total_tokens: got %d, want 12", resp.Usage.TotalTokens)
+	}
+}
+
+func TestAdapter_Options(t *testing.T) {
+	var receivedBody ollamaRequest
+
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedBody)
+		resp := ollamaResponse{
+			Model:   "test",
+			Message: api.Message{Role: "assistant", Content: "ok"},
+			Done:    true,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(config.ProviderConfig{BaseURL: mock.URL}, noopLogger())
+
+	temp := 0.7
+	maxTok := 100
+	req := &api.ProviderRequest{
+		UpstreamModel: "test",
+		Request: api.ChatRequest{
+			Messages:    []api.Message{{Role: "user", Content: "hello"}},
+			Temperature: &temp,
+			MaxTokens:   &maxTok,
+		},
+	}
+
+	_, err := adapter.ChatCompletion(t.Context(), req)
+	if err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+
+	if receivedBody.Stream != false {
+		t.Error("stream should be false")
+	}
+	if receivedBody.Options == nil {
+		t.Fatal("options should be set")
+	}
+	if *receivedBody.Options.Temperature != 0.7 {
+		t.Errorf("temperature: got %v", *receivedBody.Options.Temperature)
+	}
+	if *receivedBody.Options.NumPredict != 100 {
+		t.Errorf("num_predict: got %v", *receivedBody.Options.NumPredict)
 	}
 }
 

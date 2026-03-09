@@ -1,58 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROXY_URL="${PROXY_URL:-http://localhost:8080}"
+NATS_URL="${NATS_URL:-nats://localhost:14225}"
+MODEL="${MODEL:-ollama.qwen2.5:0.5b}"
 
-# Models use provider.model convention
-MODELS=(
-  "openai.gpt-4o"
-  "openai.gpt-4o-mini"
-  "anthropic.claude-sonnet-4-20250514"
-  "anthropic.claude-haiku-4-5-20251001"
-  "ollama.llama3:8b"
-  "ollama.mistral:7b"
-)
-
-echo "=== InferMesh Multi-Provider Demo ==="
-echo "Proxy: $PROXY_URL"
+echo "=== InferMesh End-to-End Demo (SDK → NATS → Ollama) ==="
+echo "NATS:   $NATS_URL"
+echo "Model:  $MODEL"
 echo ""
 
-# Wait for proxy to be ready
-echo "Waiting for proxy health check..."
+# Wait for NATS leaf to be reachable (check TCP port)
+NATS_PORT="${NATS_URL##*:}"
+echo "Waiting for NATS on port $NATS_PORT..."
 for i in $(seq 1 30); do
-  if curl -sf "$PROXY_URL/health" > /dev/null 2>&1; then
-    echo "Proxy is ready!"
+  if nc -z localhost "$NATS_PORT" 2>/dev/null; then
+    echo "NATS is ready!"
     break
   fi
   if [ "$i" -eq 30 ]; then
-    echo "ERROR: Proxy not ready after 30 seconds"
+    echo "ERROR: NATS not reachable after 30 seconds"
     exit 1
   fi
   sleep 1
 done
 
 echo ""
-echo "--- Sending chat completions to all 6 models ---"
+echo "--- Sending chat completion via InferMeshClient SDK ---"
 echo ""
 
-for model in "${MODELS[@]}"; do
-  echo ">>> Model: $model"
-  response=$(curl -sf "$PROXY_URL/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"model\": \"$model\",
-      \"messages\": [{\"role\": \"user\", \"content\": \"Say hello and identify yourself.\"}]
-    }")
+# Run a one-shot SDK request
+NATS_URL="$NATS_URL" MODEL="$MODEL" npx tsx demo/demo-request.ts
 
-  # Extract and display key fields
-  resp_model=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['model'])" 2>/dev/null || echo "N/A")
-  content=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null || echo "N/A")
-  tokens=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('usage',{}).get('total_tokens','N/A'))" 2>/dev/null || echo "N/A")
-
-  echo "    Upstream model: $resp_model"
-  echo "    Response: $content"
-  echo "    Tokens: $tokens"
-  echo ""
-done
-
-echo "=== Demo complete! All providers responded via unified API. ==="
+echo ""
+echo "=== Demo complete! SDK → NATS → Ollama provider → real LLM. ==="

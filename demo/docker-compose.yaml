@@ -3,10 +3,6 @@ services:
 
   nats-hub:
     image: nats:2-alpine
-    ports:
-      - "4222:4222"
-      - "7422:7422"
-      - "8222:8222"
     volumes:
       - ./nats-hub.conf:/etc/nats/nats.conf
     command: ["--config", "/etc/nats/nats.conf"]
@@ -19,8 +15,7 @@ services:
   nats-leaf-client:
     image: nats:2-alpine
     ports:
-      - "4225:4225"
-      - "8225:8225"
+      - "14225:4225"
     volumes:
       - ./nats-leaf-client.conf:/etc/nats/nats.conf
     command: ["--config", "/etc/nats/nats.conf"]
@@ -28,23 +23,8 @@ services:
       nats-hub:
         condition: service_healthy
 
-  nats-leaf-cloud:
-    image: nats:2-alpine
-    ports:
-      - "4223:4223"
-      - "8223:8223"
-    volumes:
-      - ./nats-leaf-cloud.conf:/etc/nats/nats.conf
-    command: ["--config", "/etc/nats/nats.conf"]
-    depends_on:
-      nats-hub:
-        condition: service_healthy
-
   nats-leaf-edge:
     image: nats:2-alpine
-    ports:
-      - "4224:4224"
-      - "8224:8224"
     volumes:
       - ./nats-leaf-edge.conf:/etc/nats/nats.conf
     command: ["--config", "/etc/nats/nats.conf"]
@@ -52,65 +32,27 @@ services:
       nats-hub:
         condition: service_healthy
 
+  # === LLM Backend (Ollama on CPU) ===
+
+  llm:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        while ! ollama list >/dev/null 2>&1; do sleep 1; done
+        ollama pull qwen2.5:0.5b
+        wait
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q qwen2.5"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
   # === Application Services ===
-
-  mockllm:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile
-    entrypoint: ["mockllm"]
-    environment:
-      MOCKLLM_ADDR: ":9999"
-    ports:
-      - "9999:9999"
-
-  proxy:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile
-    entrypoint: ["proxy"]
-    environment:
-      NATS_URL: "nats://nats-leaf-client:4225"
-      PROXY_ADDR: ":8080"
-    ports:
-      - "8080:8080"
-    depends_on:
-      nats-leaf-client:
-        condition: service_started
-
-  provider-openai:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile
-    entrypoint: ["provider"]
-    environment:
-      PROVIDER_NAME: openai
-      PROVIDER_CONFIG: /etc/infermesh/demo.yaml
-      NATS_URL: "nats://nats-leaf-cloud:4223"
-      OPENAI_BASE_URL: "http://mockllm:9999/v1"
-      OPENAI_API_KEY: "mock-key"
-    depends_on:
-      nats-leaf-cloud:
-        condition: service_started
-      mockllm:
-        condition: service_started
-
-  provider-anthropic:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile
-    entrypoint: ["provider"]
-    environment:
-      PROVIDER_NAME: anthropic
-      PROVIDER_CONFIG: /etc/infermesh/demo.yaml
-      NATS_URL: "nats://nats-leaf-cloud:4223"
-      ANTHROPIC_BASE_URL: "http://mockllm:9999"
-      ANTHROPIC_API_KEY: "mock-key"
-    depends_on:
-      nats-leaf-cloud:
-        condition: service_started
-      mockllm:
-        condition: service_started
 
   provider-ollama:
     build:
@@ -121,9 +63,12 @@ services:
       PROVIDER_NAME: ollama
       PROVIDER_CONFIG: /etc/infermesh/demo.yaml
       NATS_URL: "nats://nats-leaf-edge:4224"
-      OLLAMA_BASE_URL: "http://mockllm:9999/v1"
+      OLLAMA_BASE_URL: "http://llm:11434"
     depends_on:
       nats-leaf-edge:
         condition: service_started
-      mockllm:
-        condition: service_started
+      llm:
+        condition: service_healthy
+
+volumes:
+  ollama-models:

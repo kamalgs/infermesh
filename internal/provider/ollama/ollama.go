@@ -18,7 +18,7 @@ import (
 
 const QueueGroup = "provider-ollama"
 
-// Adapter implements provider.Provider for Ollama's OpenAI-compatible API.
+// Adapter implements provider.Provider using Ollama's native /api/chat endpoint.
 type Adapter struct {
 	cfg    config.ProviderConfig
 	client *http.Client
@@ -39,31 +39,62 @@ func NewAdapter(cfg config.ProviderConfig, log *slog.Logger) *Adapter {
 
 func (a *Adapter) Name() string { return "ollama" }
 
-// ChatCompletion calls the upstream Ollama API (OpenAI-compatible endpoint).
+// Ollama native /api/chat request and response types.
+
+type ollamaRequest struct {
+	Model    string        `json:"model"`
+	Messages []api.Message `json:"messages"`
+	Stream   bool          `json:"stream"`
+	Options  *ollamaOptions `json:"options,omitempty"`
+}
+
+type ollamaOptions struct {
+	Temperature *float64 `json:"temperature,omitempty"`
+	NumPredict  *int     `json:"num_predict,omitempty"`
+}
+
+type ollamaResponse struct {
+	Model           string      `json:"model"`
+	CreatedAt       string      `json:"created_at"`
+	Message         api.Message `json:"message"`
+	Done            bool        `json:"done"`
+	DoneReason      string      `json:"done_reason"`
+	TotalDuration   int64       `json:"total_duration"`
+	LoadDuration    int64       `json:"load_duration"`
+	PromptEvalCount int         `json:"prompt_eval_count"`
+	EvalCount       int         `json:"eval_count"`
+}
+
+// ChatCompletion calls Ollama's native /api/chat endpoint and translates
+// the response into the unified ChatResponse format.
 func (a *Adapter) ChatCompletion(ctx context.Context, req *api.ProviderRequest) (*api.ChatResponse, error) {
-	body := map[string]any{
-		"model":    req.UpstreamModel,
-		"messages": req.Request.Messages,
+	ollamaReq := ollamaRequest{
+		Model:    req.UpstreamModel,
+		Messages: req.Request.Messages,
+		Stream:   false,
 	}
-	if req.Request.Temperature != nil {
-		body["temperature"] = *req.Request.Temperature
-	}
-	if req.Request.MaxTokens != nil {
-		body["max_tokens"] = *req.Request.MaxTokens
+	if req.Request.Temperature != nil || req.Request.MaxTokens != nil {
+		opts := &ollamaOptions{}
+		if req.Request.Temperature != nil {
+			opts.Temperature = req.Request.Temperature
+		}
+		if req.Request.MaxTokens != nil {
+			opts.NumPredict = req.Request.MaxTokens
+		}
+		ollamaReq.Options = opts
 	}
 
-	data, err := json.Marshal(body)
+	data, err := json.Marshal(ollamaReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := a.cfg.BaseURL + "/chat/completions"
+	url := a.cfg.BaseURL + "/api/chat"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	// Ollama does not require auth headers
 
 	a.log.Info("calling upstream", "url", url, "model", req.UpstreamModel)
 
@@ -82,12 +113,34 @@ func (a *Adapter) ChatCompletion(ctx context.Context, req *api.ProviderRequest) 
 		return nil, fmt.Errorf("upstream returned %d: %s", httpResp.StatusCode, string(respBody))
 	}
 
-	var chatResp api.ChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+	var ollamaResp ollamaResponse
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	return &chatResp, nil
+	finishReason := "stop"
+	if ollamaResp.DoneReason == "length" {
+		finishReason = "length"
+	}
+
+	totalTokens := ollamaResp.PromptEvalCount + ollamaResp.EvalCount
+
+	return &api.ChatResponse{
+		ID:      fmt.Sprintf("ollama-%d", time.Now().UnixNano()),
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   ollamaResp.Model,
+		Choices: []api.Choice{{
+			Index:        0,
+			Message:      &api.Message{Role: ollamaResp.Message.Role, Content: ollamaResp.Message.Content},
+			FinishReason: finishReason,
+		}},
+		Usage: &api.Usage{
+			PromptTokens:     ollamaResp.PromptEvalCount,
+			CompletionTokens: ollamaResp.EvalCount,
+			TotalTokens:      totalTokens,
+		},
+	}, nil
 }
 
 // Subscribe registers this adapter as a NATS subscriber on llm.provider.ollama.

@@ -1,13 +1,7 @@
 nats:
-  url: "${NATS_URL:-nats://localhost:4222}"
+  url: "${NATS_URL}"
 
 providers:
-  openai:
-    base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
-    api_key: "${OPENAI_API_KEY:-mock-key}"
-  anthropic:
-    base_url: "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
-    api_key: "${ANTHROPIC_API_KEY:-mock-key}"
   ollama:
-    base_url: "${OLLAMA_BASE_URL:-http://localhost:11434/v1}"
+    base_url: "${OLLAMA_BASE_URL}"
     api_key: ""

@@ -20,21 +20,46 @@ describe("InferMeshClient", () => {
       return;
     }
 
-    // Set up a mock gateway that echoes back
-    mockNc.subscribe("llm.chat.complete", {
+    // Mock provider subscribes to llm.provider.openai.> (wildcard)
+    mockNc.subscribe("llm.provider.openai.>", {
       callback: (_err, msg) => {
-        const req = JSON.parse(sc.decode(msg.data));
+        const provReq = JSON.parse(sc.decode(msg.data));
         const resp: ChatCompletionResponse = {
           id: "test-sdk",
           object: "chat.completion",
           created: Date.now(),
-          model: req.model,
+          model: provReq.upstream_model,
           choices: [
             {
               index: 0,
               message: {
                 role: "assistant",
-                content: `sdk echo: ${req.messages[0]?.content}`,
+                content: `sdk echo: ${provReq.request.messages[0]?.content}`,
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+        };
+        msg.respond(sc.encode(JSON.stringify(resp)));
+      },
+    });
+
+    // Mock ollama provider
+    mockNc.subscribe("llm.provider.ollama.>", {
+      callback: (_err, msg) => {
+        const provReq = JSON.parse(sc.decode(msg.data));
+        const resp: ChatCompletionResponse = {
+          id: "test-ollama",
+          object: "chat.completion",
+          created: Date.now(),
+          model: provReq.upstream_model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: `ollama echo: ${provReq.request.messages[0]?.content}`,
               },
               finish_reason: "stop",
             },
@@ -50,13 +75,13 @@ describe("InferMeshClient", () => {
     if (mockNc) await mockNc.drain();
   });
 
-  it("connects and creates chat completion", async () => {
+  it("routes to correct provider subject", async () => {
     if (!mockNc) return;
 
     const client = await InferMeshClient.connect({ natsUrl: NATS_URL });
 
     const resp = await client.chat.completions.create({
-      model: "gpt-4o",
+      model: "openai.gpt-4o",
       messages: [{ role: "user", content: "hello from sdk" }],
     });
 
@@ -70,6 +95,23 @@ describe("InferMeshClient", () => {
     await client.close();
   });
 
+  it("routes to ollama provider", async () => {
+    if (!mockNc) return;
+
+    const client = await InferMeshClient.connect({ natsUrl: NATS_URL });
+
+    const resp = await client.chat.completions.create({
+      model: "ollama.qwen2.5:0.5b",
+      messages: [{ role: "user", content: "test ollama" }],
+    });
+
+    expect(resp.id).toBe("test-ollama");
+    expect(resp.model).toBe("qwen2.5:0.5b");
+    expect(resp.choices[0].message?.content).toBe("ollama echo: test ollama");
+
+    await client.close();
+  });
+
   it("accepts pre-existing NATS connection", async () => {
     if (!mockNc) return;
 
@@ -77,7 +119,7 @@ describe("InferMeshClient", () => {
     const client = await InferMeshClient.connect({ nc });
 
     const resp = await client.chat.completions.create({
-      model: "test-model",
+      model: "openai.test-model",
       messages: [{ role: "user", content: "pre-connected" }],
     });
 
@@ -91,12 +133,26 @@ describe("InferMeshClient", () => {
     await nc.drain();
   });
 
+  it("throws on invalid model format", async () => {
+    if (!mockNc) return;
+
+    const client = await InferMeshClient.connect({ natsUrl: NATS_URL });
+
+    await expect(
+      client.chat.completions.create({
+        model: "no-dot-model",
+        messages: [{ role: "user", content: "test" }],
+      })
+    ).rejects.toThrow("must be in the form provider.model");
+
+    await client.close();
+  });
+
   it("throws on error response", async () => {
     if (!mockNc) return;
 
-    // Set up a separate mock that returns errors
-    const errNc = await connect({ servers: NATS_URL });
-    const sub = errNc.subscribe("llm.chat.complete.error", {
+    // Mock error provider
+    const errSub = mockNc.subscribe("llm.provider.errtest.>", {
       callback: (_err, msg) => {
         const errResp: ErrorResponse = {
           error: {
@@ -109,9 +165,16 @@ describe("InferMeshClient", () => {
       },
     });
 
-    // We can't easily test this with the current subject, but we verify
-    // the error parsing logic works
-    await sub.drain();
-    await errNc.drain();
+    const client = await InferMeshClient.connect({ natsUrl: NATS_URL });
+
+    await expect(
+      client.chat.completions.create({
+        model: "errtest.model",
+        messages: [{ role: "user", content: "test" }],
+      })
+    ).rejects.toThrow("[test_error] test error");
+
+    await client.close();
+    await errSub.drain();
   });
 });
